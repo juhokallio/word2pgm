@@ -3,12 +3,9 @@
 
 from vectorization import TextModel
 from parsing import FinnishParser
+from lstm import AnnModel
 import unittest
-import numpy
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import LSTM
-from sklearn.metrics import mean_squared_error
+import pdb
 
 
 def read_file(file_name):
@@ -42,27 +39,8 @@ def print_unique_words(file_names):
     for w in unique_words:
         print(w)
 
-def create_training_data(parsed_text, text_model, look_back=20):
-    dataX, dataY = [], []
-    for i in range(len(parsed_text) - look_back - 1):
-        a = [text_model.word_to_vector(w) for w in parsed_text[i:(i+look_back)]]
-        dataX.append(a)
-        dataY.append(text_model.word_to_vector(parsed_text[i + look_back]))
-    return numpy.array(dataX), numpy.array(dataY)
-
-def create_rnn(look_back, word_vector_size):
-    model = Sequential()
-    model.add(LSTM(150, input_dim=word_vector_size, input_length=look_back))
-    model.add(Dense(word_vector_size))
-    model.compile(loss='mean_squared_error', optimizer='adam')
-    return model
-
-def train_rnn(model, parsed_text, text_model, look_back):
-    trainX, trainY = create_training_data(parsed_text, text_model, look_back)
-    model.fit(trainX, trainY, nb_epoch=100, batch_size=1, verbose=2)
-
 def test_rnn_training():
-    look_back = 4
+    look_back = 10
     text = read_file("data/finnish/pg45271.txt")
     print("Read {} words of training data".format(len(text)))
     parser = FinnishParser()
@@ -70,10 +48,11 @@ def test_rnn_training():
     print("words parsed")
     text_model = TextModel(parsed_words)
     print("Text model trained")
-    lstm_model = create_rnn(look_back, text_model.size)
+    lstm_model = AnnModel(text_model, look_back)
     print("ann created, starting training")
-    train_rnn(lstm_model, parsed_words, text_model, look_back)
+    lstm_model.train(parsed_words)
     print("ann trained")
+    lstm_model.predict_text(30)
 
 def main():
     #print_unique_words(["data/finnish/pg45271.txt"])
