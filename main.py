@@ -40,7 +40,7 @@ def print_unique_words(file_names):
         print(w)
 
 def test_rnn_training():
-    look_back = 10
+    look_back = 5
     text = read_file("data/finnish/pg45271.txt")
     print("Read {} words of training data".format(len(text)))
     parser = FinnishParser()

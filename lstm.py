@@ -18,7 +18,8 @@ class AnnModel:
         self.look_back = look_back
         self.word_vector_size = text_model.size
         self.model = Sequential()
-        self.model.add(LSTM(50, input_dim=self.word_vector_size, input_length=look_back))
+        self.model.add(LSTM(100, input_dim=look_back, input_length=self.word_vector_size, return_sequences=True))
+        self.model.add(LSTM(100))
         self.model.add(Dense(self.word_vector_size))
         self.model.compile(loss='mean_squared_error', optimizer='adam')
 
@@ -26,27 +27,27 @@ class AnnModel:
         dataX, dataY = [], []
         for i in range(len(parsed_text) - self.look_back - 1):
             a = [self.text_model.word_to_vector(w) for w in parsed_text[i:(i+self.look_back)]]
-            dataX.append(a)
+            dataX.append(np.transpose(a))
             dataY.append(self.text_model.word_to_vector(parsed_text[i + self.look_back]))
         return np.array(dataX), np.array(dataY)
 
     def create_input_data(self, history):
-        X = np.zeros((1, self.look_back, self.word_vector_size))
+        X = np.zeros((self.look_back, self.word_vector_size))
         for i, w in enumerate(history):
             age = len(history) - i
             if age <= self.look_back:
-                X[0][self.look_back - age] = self.text_model.word_to_vector(w)
-        return X
+                X[self.look_back - age] = self.text_model.word_to_vector(w)
+        return np.array([np.transpose(X)])
 
     def train(self, parsed_text):
         trainX, trainY = self.create_training_data(parsed_text)
         print("Training data created")
-        self.model.fit(trainX, trainY, nb_epoch=10, batch_size=500, verbose=2)
+        self.model.fit(trainX, trainY, nb_epoch=50, batch_size=100, verbose=2)
 
     def predict_word(self, history):
         prediction_data = self.create_input_data(history)
         predicted_vector = self.model.predict(prediction_data)[0]
-        return self.text_model.likeliest_parsed_word(predicted_vector)
+        return self.text_model.likeliest(predicted_vector)
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
