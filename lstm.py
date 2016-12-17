@@ -7,8 +7,6 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
 from sklearn.metrics import mean_squared_error
-from vectorization import TextModel
-from parsing import FinnishParser
 import pdb
 
 class AnnModel:
@@ -26,9 +24,14 @@ class AnnModel:
 
     def create_training_data(self, vectors):
         dataX, dataY = [], []
-        for i in range(len(vectors) - self.look_back):
-            dataX.append(vectors[i:(i + self.look_back)])
-            dataY.append(vectors[i + self.look_back])
+        for i, vector in enumerate(vectors):
+            sample = np.zeros((self.look_back, self.word_vector_size))
+            for j in range(self.look_back):
+                vector_index = i - self.look_back + j
+                if vector_index >= 0:
+                    sample[-j] = vectors[vector_index]
+            dataX.append(sample)
+            dataY.append(vector)
         return np.array(dataX), np.array(dataY)
 
     def create_input_data(self, history):
@@ -61,20 +64,22 @@ class testAnnModel(unittest.TestCase):
 
     def test_create_training_data(self):
         model = AnnModel(1, look_back=2)
-        data = [[0], [0.2], [0.4], [0.6], [0.8]]
+        data = [[0.1], [0.2], [0.3], [0.4], [0.5]]
         X, Y = model.create_training_data(data)
-        self.assertEqual((3, 2, 1), X.shape)
-        self.assertEqual((3, 1), Y.shape)
-        np.testing.assert_array_equal(X, [[[0], [0.2]], [[0.2], [0.4]], [[0.4], [0.6]]])
-        np.testing.assert_array_equal(Y, [[0.4], [0.6], [0.8]])
+        self.assertEqual((5, 2, 1), X.shape)
+        self.assertEqual((5, 1), Y.shape)
+        np.testing.assert_array_equal(X, [[[0.0], [0.0]], [[0.0], [0.1]], [[0.1], [0.2]], [[0.2], [0.3]], [[0.3], [0.4]]])
+        np.testing.assert_array_equal(Y, [[0.1], [0.2], [0.3], [0.4], [0.5]])
 
     def test_simple_model(self):
-        model = AnnModel(1, look_back=2, lstm_size=30, lstm_count=2)
-        data = [[0], [0.2], [0.4], [0.6], [0.8]]
-        model.train(data, epochs=100, batch_size=3)
-        self.assertAlmostEqual(0.4, model.predict([[0.0], [0.2]])[0], delta=0.05)
-        self.assertAlmostEqual(0.6, model.predict([[0.2], [0.4]])[0], delta=0.05)
-        self.assertAlmostEqual(0.8, model.predict([[0.4], [0.6]])[0], delta=0.05)
+        model = AnnModel(1, look_back=2, lstm_size=200, lstm_count=4)
+        data = [[0.1], [0.2], [0.3], [0.4], [0.5]]
+        model.train(data, epochs=400, batch_size=5)
+        self.assertAlmostEqual(0.1, model.predict([[0.0], [0.0]])[0], delta=0.02)
+        self.assertAlmostEqual(0.2, model.predict([[0.0], [0.1]])[0], delta=0.02)
+        self.assertAlmostEqual(0.3, model.predict([[0.1], [0.2]])[0], delta=0.02)
+        self.assertAlmostEqual(0.4, model.predict([[0.2], [0.3]])[0], delta=0.02)
+        self.assertAlmostEqual(0.5, model.predict([[0.3], [0.4]])[0], delta=0.02)
 
     def test_create_input_data(self):
         model = AnnModel(2, look_back=4)
