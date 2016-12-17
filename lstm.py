@@ -56,7 +56,7 @@ class AnnModel:
         if words_to_predict > 0:
             vector = self.predict(history)
             history.append(vector)
-            self.predict_text(words_to_predict-1, history)
+            return self.predict_sequence(words_to_predict-1, history)
         else:
             return history
 
@@ -80,6 +80,7 @@ class testAnnModel(unittest.TestCase):
         self.assertAlmostEqual(0.3, model.predict([[0.1], [0.2]])[0], delta=0.02)
         self.assertAlmostEqual(0.4, model.predict([[0.2], [0.3]])[0], delta=0.02)
         self.assertAlmostEqual(0.5, model.predict([[0.3], [0.4]])[0], delta=0.02)
+        np.testing.assert_allclose(model.predict_sequence(5), data, atol=0.02)
 
     def test_create_input_data(self):
         model = AnnModel(2, look_back=4)
