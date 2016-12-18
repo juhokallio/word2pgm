@@ -8,11 +8,12 @@ from parsing import FinnishParser, AnalysedWord
 
 class TextModel:
 
-    def __init__(self, parsed_words):
-        self.base = self.create_word2vec_model(self.split_to_sentences(parsed_words, "base"), 35)
-        self.grammar = self.create_word2vec_model(self.split_to_sentences(parsed_words, "grammar"), 35)
-        self.base_length = len(list(self.base.values())[0]) if bool(self.base) else 0
-        self.grammar_length = len(list(self.grammar.values())[0]) if bool(self.grammar) else 0
+    def __init__(self, parsed_words, sentence_start_indexes, base_size=30, grammar_size=30):
+        base_sentences, grammar_sentences = self.split_to_sentences(parsed_words, sentence_start_indexes)
+        self.base = self.create_word2vec_model(base_sentences, base_size)
+        self.grammar = self.create_word2vec_model(grammar_sentences, grammar_size)
+        self.base_length = base_size
+        self.grammar_length = grammar_size
         self.size = self.base_length + self.grammar_length
         self.counts = self.get_counts(parsed_words)
         self.counted_data_size = len(parsed_words)
@@ -35,15 +36,11 @@ class TextModel:
         return counts
 
     @staticmethod
-    def split_to_sentences(words, dimension):
-        sentences = []
-        sentence = []
-        for w in words:
-            sentence.append(getattr(w, dimension))
-            if w.base == ".":
-                sentences.append(sentence)
-                sentence = []
-        return sentences
+    def split_to_sentences(words, sentence_start_indexes):
+        sentences = np.split(words, sentence_start_indexes)
+        base_sentences = [[w[0] for w in s] for s in sentences]
+        grammar_sentences = [[w[1] for w in s] for s in sentences]
+        return base_sentences, grammar_sentences
 
     def get_encounter_count(self, word):
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
@@ -74,30 +71,34 @@ class TextModel:
 
 class TestTextModel(unittest.TestCase):
 
-    def setUp(self):
-        self.parser = FinnishParser()
+    @classmethod
+    def setUpClass(cls):
+        cls.parser = FinnishParser()
 
     def test_likeliest_base_form(self):
-        parsed_words = self.parser.parse("Kissa kissalle kissan kissat.")
-        text_model = TextModel(parsed_words)
-        self.assertEqual("kissa", text_model.likeliest(text_model.base, np.zeros(5)))
+        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissat.")
+        text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
+        self.assertEqual("kissa", text_model.likeliest(np.zeros(5)).base)
 
     def test_init(self):
-        parsed_words = self.parser.parse("Ohjelmointi on mukavaa. Se ei ikinä ärsytä.")
+        parsed_words, sentence_start_indexes = self.parser.parse("Ohjelmointi on mukavaa. Se ei ikinä ärsytä.")
         self.assertEqual("ohjelmointi", parsed_words[0].base)
 
-        text_model = TextModel(parsed_words)
+        text_model = TextModel(parsed_words, sentence_start_indexes, base_size=6, grammar_size=4)
         self.assertEqual(10, text_model.size)
 
         word_vector = text_model.word_to_vector(parsed_words[0])
         self.assertEqual(10, len(word_vector))
 
     def test_split_to_sentences(self):
-        parsed_words = self.parser.parse("Kissa istui pöydällä.")
-        self.assertEqual([["kissa", "istua", "pöytä", "."]], TextModel.split_to_sentences(parsed_words, "base"))
+        parsed_words, _ = self.parser.parse("Kissa istui pöydällä.")
+        sentences, _ = TextModel.split_to_sentences(parsed_words, [])
+        self.assertEqual([["kissa", "istua", "pöytä", "."]], sentences)
 
-        parsed_words = self.parser.parse("Kissa, joka makaa.")
-        self.assertEqual([["kissa", ",", "joka", "maata", "."]], TextModel.split_to_sentences(parsed_words, "base"))
+        parsed_words, _ = self.parser.parse("Kissa, joka makaa.")
+        sentences, _ = TextModel.split_to_sentences(parsed_words, [])
+        self.assertEqual([["kissa", ",", "joka", "maata", "."]], sentences)
 
-        parsed_words = self.parser.parse("Kissa istui pöydällä. Satoi.")
-        self.assertEqual([["kissa", "istua", "pöytä", "."], ["sataa", "."]], TextModel.split_to_sentences(parsed_words, "base"))
+        parsed_words, _ = self.parser.parse("Kissa istui pöydällä. Satoi.")
+        sentences, _ = TextModel.split_to_sentences(parsed_words, [4])
+        self.assertEqual([["kissa", "istua", "pöytä", "."], ["sataa", "."]], sentences)

@@ -25,8 +25,24 @@ class FinnishParser:
         text = re.sub("\[\d+\]", "", text)
         return self.tokenizer.tokenize(text)
 
+    def get_sentence_start_indexes(self, tokens):
+        start_indexes = []
+        sentence_ended = False
+        sentence_end_regex = r"\.\.\.|[\.!\?:;]"
+        for i, token in enumerate(tokens):
+            if re.match(sentence_end_regex, token):
+                sentence_ended = True
+            else:
+                if sentence_ended:
+                    start_indexes.append(i)
+                sentence_ended = False
+        return start_indexes
+
     def parse(self, text):
-        return [self.analyse(w) for w in self.tokenize(text)]
+        tokens = self.tokenize(text)
+        parsed_words = [self.analyse(t) for t in tokens]
+        sentence_start_indexes = self.get_sentence_start_indexes(tokens)
+        return parsed_words, sentence_start_indexes
 
     def analyse(self, word):
         omorfi_form = self.omorfi.analyse(word)
@@ -39,6 +55,10 @@ class TestParsing(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.parser = FinnishParser()
+
+    def test_get_sentence_start_indexes(self):
+        tokens = ["Sataa", ".", "Koira", "jäi", "ulos", "!", "Mitähän", "nyt", "?", "Surettaa", "...", "Sataa", "."]
+        self.assertEqual(self.parser.get_sentence_start_indexes(tokens), [2, 6, 9, 11])
 
     def test_tokenize_simple(self):
         self.assertEqual(self.parser.tokenize("Koiran ruoka on valmiina."), ["Koiran", "ruoka", "on", "valmiina", "."])
