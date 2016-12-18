@@ -10,7 +10,7 @@ import pdb
 
 def read_file(file_name):
     with open(file_name, "r") as myfile:
-        text = myfile.read().replace('\n', '')
+        text = myfile.read()
     return text
 
 def read_files(file_names):
@@ -34,9 +34,10 @@ def test_unique_counts(file_names):
     print("{} distinct grammar forms".format(grammar_form_count))
 
 def print_unique_words(file_names):
-    words = split_to_words(read_files(file_names))
-    unique_words = {word_to_base(w) for w in words}
-    for w in unique_words:
+    parser = FinnishParser()
+    words = parser.tokenize(read_files(file_names))
+    unique_words = set(words)
+    for w in words:
         print(w)
 
 def test_rnn_training():
@@ -55,10 +56,10 @@ def test_rnn_training():
     lstm_model.predict_text(30)
 
 def main():
-    #print_unique_words(["data/finnish/pg45271.txt"])
+    print_unique_words(["data/finnish/pg45271.txt"])
     #test_unique_counts(["data/finnish/pg45271.txt"])
     #test_base_form_word2vec()
-    test_rnn_training()
+    #test_rnn_training()
     
 if __name__ == "__main__":
     main()
