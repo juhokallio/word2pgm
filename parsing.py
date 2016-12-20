@@ -11,7 +11,7 @@ class FinnishParser:
     def __init__(self):
         self.omorfi = Omorfi()
         self.omorfi.load_from_dir()
-        self.tokenizer = RegexpTokenizer('\w+\-\w+|\w+|\$[\d\.]+|\.\.\.|[,!\.\(\)]|\S+')
+        self.tokenizer = RegexpTokenizer('\w+\-\w+|\w+|\$[\d\.]+|\.\.\.|[",!\.\(\)]|\S+')
 
     @staticmethod
     def omorfi_to_base(omorfi_form):
@@ -22,7 +22,7 @@ class FinnishParser:
         return re.sub(r"\[WORD_ID=.*?\]", "", omorfi_form)
 
     def tokenize(self, text):
-        text = re.sub("\[\d+\]", "", text)
+        text = re.sub("\[\d+\]|\ufeff", "", text)
         return self.tokenizer.tokenize(text)
 
     def get_sentence_start_indexes(self, tokens):
@@ -65,6 +65,7 @@ class TestParsing(unittest.TestCase):
 
     def test_tokenize_bad_stuff_removal(self):
         self.assertEqual(self.parser.tokenize("Koira [2] haukkuu"), ["Koira", "haukkuu"])
+        self.assertEqual(self.parser.tokenize("\ufeff \ufeffKoira"), ["Koira"])
 
     def test_tokenize_compounds(self):
         self.assertEqual(self.parser.tokenize("sota-aikana"), ["sota-aikana"])
@@ -77,7 +78,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(self.parser.tokenize("nukkuu..."), ["nukkuu", "..."])
 
     def test_tokenize_punctuation_with_missing_space(self):
-        self.assertEqual(self.parser.tokenize("hän,ruhtinas"), ["hän", ",", "ruhtinas"])
+        self.assertEqual(self.parser.tokenize("\"hän,ruhtinas"), ["\"", "hän", ",", "ruhtinas"])
         self.assertEqual(self.parser.tokenize("hän!ruhtinas"), ["hän", "!", "ruhtinas"])
         self.assertEqual(self.parser.tokenize("hän.ruhtinas"), ["hän", ".", "ruhtinas"])
 

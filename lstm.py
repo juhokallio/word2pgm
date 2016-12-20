@@ -21,7 +21,7 @@ class AnnModel:
             self.model.add(LSTM(lstm_size, return_sequences=True))
         self.model.add(LSTM(lstm_size))
         self.model.add(Dense(self.word_vector_size))
-        self.model.compile(loss='mean_squared_error', optimizer='adam')
+        self.model.compile(loss='cosine_proximity', optimizer='adam')
 
     def create_training_data(self, vectors):
         dataX, dataY = [], []
@@ -65,14 +65,6 @@ class AnnModel:
     def predict(self, history):
         prediction_data = self.create_input_data(history)
         return self.model.predict(prediction_data)[0]
-
-    def predict_sequence(self, words_to_predict, history=[]):
-        if words_to_predict > 0:
-            vector = self.predict(history)
-            history.append(vector)
-            return self.predict_sequence(words_to_predict-1, history)
-        else:
-            return history
 
 
 class testAnnModel(unittest.TestCase):

@@ -8,10 +8,10 @@ from parsing import FinnishParser, AnalysedWord
 
 class TextModel:
 
-    def __init__(self, parsed_words, sentence_start_indexes, base_size=30, grammar_size=30):
+    def __init__(self, parsed_words, sentence_start_indexes, base_size=30, grammar_size=30, word2vec_iterations=1500):
         base_sentences, grammar_sentences = self.split_to_sentences(parsed_words, sentence_start_indexes)
-        self.base = self.create_word2vec_model(base_sentences, base_size)
-        self.grammar = self.create_word2vec_model(grammar_sentences, grammar_size)
+        self.base = self.create_word2vec_model(base_sentences, base_size, word2vec_iterations)
+        self.grammar = self.create_word2vec_model(grammar_sentences, grammar_size, word2vec_iterations)
         self.base_length = base_size
         self.grammar_length = grammar_size
         self.size = self.base_length + self.grammar_length
@@ -19,8 +19,8 @@ class TextModel:
         self.counted_data_size = len(parsed_words)
 
     @staticmethod
-    def create_word2vec_model(sentences, size):
-        model = gensim.models.Word2Vec(sentences, size=size, min_count=1, iter=1500, workers=2)
+    def create_word2vec_model(sentences, size, iterations):
+        model = gensim.models.Word2Vec(sentences, size=size, min_count=1, iter=iterations, workers=2)
         model.init_sims(replace=True)
         positions = {w: model[w] for w in model.vocab}
         return positions
@@ -42,27 +42,22 @@ class TextModel:
         grammar_sentences = [[w[1] for w in s] for s in sentences]
         return base_sentences, grammar_sentences
 
-    def get_encounter_count(self, word):
-        word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
-        return self.counts[word.base][word.grammar] if word_encountered else 0
-
     def word_to_vector(self, word):
         return list(itertools.chain(self.base[word.base], self.grammar[word.grammar]))
 
+    def get_encounter_count(self, word):
+        word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
+        return self.counts[word.base][word.grammar] + 1 if word_encountered else 1
+
     def likeliest(self, vector):
-        cleaned_target_v = gensim.matutils.unitvec(vector)
         closest_w = None
-        similarity = 0
-        target_v_b = gensim.matutils.unitvec(vector[:self.base_length])
-        target_v_g = gensim.matutils.unitvec(vector[-self.grammar_length:])
+        similarity = -1
+        unit_vector = gensim.matutils.unitvec(vector)
         for b, v_b in self.base.items():
-            cleaned_v_b = gensim.matutils.unitvec(v_b)
-            base_p = np.dot(cleaned_v_b, target_v_b)**2
             for g, v_g in self.grammar.items():
-                cleaned_v_g = gensim.matutils.unitvec(v_g)
-                grammar_p = np.dot(cleaned_v_g, target_v_g)**2
+                target_unit_vector = gensim.matutils.unitvec(np.concatenate((v_b, v_g)))
                 word = AnalysedWord(b, g)
-                s = base_p * grammar_p * self.get_encounter_count(word)
+                s = np.dot(unit_vector, target_unit_vector)# * self.get_encounter_count(word)
                 if (closest_w is None) or (similarity < s):
                     similarity = s
                     closest_w = word
@@ -76,7 +71,7 @@ class TestTextModel(unittest.TestCase):
         cls.parser = FinnishParser()
 
     def test_likeliest_base_form(self):
-        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissat.")
+        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissat")
         text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
         self.assertEqual("kissa", text_model.likeliest(np.zeros(5)).base)
 
