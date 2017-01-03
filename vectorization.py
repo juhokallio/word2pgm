@@ -1,4 +1,5 @@
 import gensim
+from scipy.stats import truncnorm
 import numpy as np
 import itertools
 import unittest
@@ -14,7 +15,7 @@ class TextModel:
         self.grammar = self.create_word2vec_model(grammar_sentences, grammar_size, word2vec_iterations)
         self.base_length = base_size
         self.grammar_length = grammar_size
-        self.size = self.base_length + self.grammar_length
+        self.vector_size = self.base_length + self.grammar_length
         self.counts = self.get_counts(parsed_words)
         self.counted_data_size = len(parsed_words)
 
@@ -43,7 +44,8 @@ class TextModel:
         return base_sentences, grammar_sentences
 
     def word_to_vector(self, word):
-        return list(itertools.chain(self.base[word.base], self.grammar[word.grammar]))
+        vector = np.concatenate((self.base[word.base], self.grammar[word.grammar]))
+        return gensim.matutils.unitvec(vector)
 
     def get_encounter_count(self, word):
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
@@ -63,6 +65,21 @@ class TextModel:
                     closest_w = word
         return closest_w
 
+    def get_cosine_similarities(self, vector):
+        model_vectors = []
+        unit_vector = gensim.matutils.unitvec(vector)
+        for b, v_b in self.base.items():
+            for g, v_g in self.grammar.items():
+                target_unit_vector = gensim.matutils.unitvec(np.concatenate((v_b, v_g)))
+                s = np.dot(unit_vector, target_unit_vector)
+                model_vectors.append(s)
+        return np.array(model_vectors)
+
+    def get_cosine_similarity_pdf(self):
+        random_unit_vector = gensim.matutils.unitvec(np.random.rand(self.vector_size))
+        sd = np.std(self.get_cosine_similarities(random_unit_vector))
+        return lambda s: truncnorm.pdf(s, -1, 1, 0, sd)
+
 
 class TestTextModel(unittest.TestCase):
 
@@ -80,7 +97,7 @@ class TestTextModel(unittest.TestCase):
         self.assertEqual("ohjelmointi", parsed_words[0].base)
 
         text_model = TextModel(parsed_words, sentence_start_indexes, base_size=6, grammar_size=4)
-        self.assertEqual(10, text_model.size)
+        self.assertEqual(10, text_model.vector_size)
 
         word_vector = text_model.word_to_vector(parsed_words[0])
         self.assertEqual(10, len(word_vector))

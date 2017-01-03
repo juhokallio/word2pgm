@@ -8,6 +8,42 @@ import unittest
 import pdb
 
 
+class Word2pgm:
+
+    def __init__(self, base_vector_size, grammar_vector_size, look_back, lstm_layer_size, lstm_layers):
+        self.base_vector_size = base_vector_size
+        self.grammar_vector_size = grammar_vector_size
+        self.parser = FinnishParser()
+        self.lstm_model = AnnModel(base_vector_size + grammar_vector_size, look_back, lstm_layer_size, lstm_layers)
+
+    def train(self, text, lstm_epochs, lstm_batch_size, word2vec_iterations=1000):
+        parsed_words, sentence_start_indexes = self.parser.parse(text)
+        print("words parsed")
+        self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
+        self.cosine_similarity_pdf = self.text_model.get_cosine_similarity_pdf()
+        vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
+        split_index = int(len(vector_data) * 0.2)
+        training_data = vector_data[split_index:]
+        test_data = vector_data[:split_index]
+        self.lstm_model.train(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
+
+    def predict_text(self, words_to_predict, history=[], text=[]):
+        if words_to_predict > 0:
+            vector = self.ann_model.predict(history)
+            word = self.text_model.likeliest(vector)
+            history.append(text_model.word_to_vector(word))
+            text.append(word)
+            return self.predict_text(words_to_predict-1, history, text)
+        else:
+            return text
+
+    def print_cosine_similarity_densities(self):
+        print("cosine similarity densities (-1, 0, 1):")
+        print(self.cosine_similarity_pdf(-1))
+        print(self.cosine_similarity_pdf(0))
+        print(self.cosine_similarity_pdf(1))
+
+
 def read_file(file_name):
     with open(file_name, "r") as myfile:
         text = myfile.read()
@@ -86,10 +122,30 @@ if __name__ == "__main__":
 
 class Word2pgmTest(unittest.TestCase):
 
+    default_settings = {
+            "base_vector_size": 10,
+            "grammar_vector_size": 10,
+            "look_back": 4,
+            "lstm_layer_size": 20,
+            "lstm_layers": 2
+            }
+
+    def test_probability_distributions(self):
+        word2pgm = Word2pgm(**self.default_settings)
+        text = read_file("data/finnish/pg45271.txt")[:10000]
+        word2pgm.train(text, lstm_epochs=1, lstm_batch_size=100, word2vec_iterations=1000)
+        self.assertTrue(word2pgm.cosine_similarity_pdf(-1) < word2pgm.cosine_similarity_pdf(0),
+                msg="cosine similarity density in -1 was higher than in 0")
+        self.assertTrue(word2pgm.cosine_similarity_pdf(1) < word2pgm.cosine_similarity_pdf(0),
+                msg="cosine similarity density in 1 was higher than in 0")
+        self.assertAlmostEqual(word2pgm.cosine_similarity_pdf(-1), word2pgm.cosine_similarity_pdf(1),
+                delta=0.01,
+                msg="cosine similarity density in -1 was not the same as in 1")
+
     def test_predicting_with_tiny_input(self):
-        look_back = 4
-        base_vector_size = 10
-        grammar_vector_size = 10
+        look_back = 2
+        base_vector_size = 5
+        grammar_vector_size = 3
         lstm_neurons = 100
         lstm_count = 2
 
