@@ -1,5 +1,6 @@
 import gensim
-from scipy.stats import truncnorm
+import nsphere
+from scipy.stats import truncnorm, beta
 import numpy as np
 import itertools
 import unittest
@@ -75,10 +76,9 @@ class TextModel:
                 model_vectors.append(s)
         return np.array(model_vectors)
 
-    def get_cosine_similarity_pdf(self):
-        random_unit_vector = gensim.matutils.unitvec(np.random.rand(self.vector_size))
-        sd = np.std(self.get_cosine_similarities(random_unit_vector))
-        return lambda s: truncnorm.pdf(s, -1, 1, 0, sd)
+    def cosine_similarity_pdf(self, similarity):
+        r = np.sin(np.arccos(similarity))
+        return nsphere.surface(r, self.vector_size - 1)
 
 
 class TestTextModel(unittest.TestCase):
