@@ -52,6 +52,18 @@ class TextModel:
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
         return self.counts[word.base][word.grammar] + 1 if word_encountered else 1
 
+    def get_vocabulary(self):
+        vocabulary = []
+        for b, v_b in self.base.items():
+            for g, v_g in self.grammar.items():
+                word = AnalysedWord(b, g)
+                vocabulary.append((
+                    word,
+                    gensim.matutils.unitvec(np.concatenate((v_b, v_g))),
+                    self.get_encounter_count(word)
+                    ))
+        return vocabulary
+
     def likeliest(self, vector):
         closest_w = None
         similarity = -1
@@ -114,3 +126,15 @@ class TestTextModel(unittest.TestCase):
         parsed_words, _ = self.parser.parse("Kissa istui pöydällä. Satoi.")
         sentences, _ = TextModel.split_to_sentences(parsed_words, [4])
         self.assertEqual([["kissa", "istua", "pöytä", "."], ["sataa", "."]], sentences)
+
+    def test_get_vocabulary(self):
+        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissan")
+        text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
+        vocabulary = text_model.get_vocabulary()
+        self.assertEqual(3, len(vocabulary))
+        priors = [prior for w, v, prior in vocabulary]
+        self.assertEqual([2, 2, 3], sorted(priors))
+        base_forms = [w.base for w, v, prior in vocabulary]
+        self.assertEqual(["kissa", "kissa", "kissa"], base_forms)
+        first_vector = vocabulary[0][1]
+        self.assertEqual(5, len(first_vector))

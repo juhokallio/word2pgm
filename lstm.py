@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import gensim
 import unittest
 import numpy as np
+from scipy.stats import norm
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
-from sklearn.metrics import mean_squared_error
 import pdb
 
 
@@ -21,7 +22,7 @@ class AnnModel:
             self.model.add(LSTM(lstm_size, return_sequences=True))
         self.model.add(LSTM(lstm_size))
         self.model.add(Dense(self.word_vector_size))
-        self.model.compile(loss='cosine_proximity', optimizer='adam')
+        self.model.compile(loss="cosine_proximity", optimizer="adam")
 
     def create_training_data(self, vectors):
         dataX, dataY = [], []
@@ -60,14 +61,28 @@ class AnnModel:
         X = np.concatenate((unpaddedX, paddedX))
         Y = np.concatenate((unpaddedY, paddedY))
         print("Training data created")
-        self.model.fit(X, Y, nb_epoch=epochs, batch_size=batch_size, verbose=2)
+        return self.model.fit(X, Y, nb_epoch=epochs, batch_size=batch_size, verbose=2)
+
+    @staticmethod
+    def cosine_similarity(v1, v2):
+        return np.dot(gensim.matutils.unitvec(v1), gensim.matutils.unitvec(v2))
+
+    def get_pdf(self, vectors, mean=0, normalizer=lambda x: x, sentence_start_indexes=[]):
+        unpaddedX, unpaddedY = self.create_training_data(vectors)
+        paddedX, paddedY = self.create_padded_training_data(vectors, sentence_start_indexes)
+        X = np.concatenate((unpaddedX, paddedX))
+        Y = np.concatenate((unpaddedY, paddedY))
+        predictions = self.model.predict(X)
+        similarities = [normalizer(self.cosine_similarity(y, y_p)) for y, y_p in zip(Y, predictions)]
+        sd = np.std(similarities)
+        return lambda s: norm.pdf(s, mean, sd)
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
         return self.model.predict(prediction_data)[0]
 
 
-class testAnnModel(unittest.TestCase):
+class TestAnnModel(unittest.TestCase):
 
     def test_create_training_data(self):
         model = AnnModel(1, look_back=2)
@@ -99,15 +114,20 @@ class testAnnModel(unittest.TestCase):
         np.testing.assert_array_equal(Y, [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
     def test_simple_model(self):
-        model = AnnModel(1, look_back=2, lstm_size=200, lstm_count=2)
-        data = [[0.1], [0.2], [0.3], [0.4], [0.5]]
-        model.train(data, epochs=500, batch_size=5)
-        self.assertAlmostEqual(0.1, model.predict([[0.0], [0.0]])[0], delta=0.02)
-        self.assertAlmostEqual(0.2, model.predict([[0.0], [0.1]])[0], delta=0.02)
-        self.assertAlmostEqual(0.3, model.predict([[0.1], [0.2]])[0], delta=0.02)
-        self.assertAlmostEqual(0.4, model.predict([[0.2], [0.3]])[0], delta=0.02)
-        self.assertAlmostEqual(0.5, model.predict([[0.3], [0.4]])[0], delta=0.02)
-        np.testing.assert_allclose(model.predict_sequence(5), data, atol=0.02)
+        model = AnnModel(2, look_back=2, lstm_size=200, lstm_count=2)
+        data = [[0.1, 0.1], [0.1, 0.2], [0.1, 0.3], [0.1, 0.4], [0.1, 0.5]]
+        model.train(data, epochs=100, batch_size=5)
+        test_cases = [
+                (np.array([0.0, 0.0]), np.array([0.1, 0.1])),
+                (np.array([0.0, 0.1]), np.array([0.1, 0.2])),
+                (np.array([0.1, 0.2]), np.array([0.1, 0.3])),
+                (np.array([0.1, 0.3]), np.array([0.1, 0.4])),
+                (np.array([0.1, 0.4]), np.array([0.1, 0.5]))
+                ]
+        for x, expected_y in test_cases:
+            y = model.predict(x)
+            s = model.cosine_similarity(expected_y, y)
+            self.assertAlmostEqual(1.0, s, delta=0.02)
 
     def test_create_input_data(self):
         model = AnnModel(2, look_back=4)

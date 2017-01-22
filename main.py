@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import random
 from vectorization import TextModel
 from parsing import FinnishParser
 from lstm import AnnModel
+import matplotlib.pyplot as plt
+import numpy as np
 import unittest
 import pdb
 
@@ -20,14 +23,25 @@ class Word2pgm:
         parsed_words, sentence_start_indexes = self.parser.parse(text)
         print("words parsed")
         self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
-        self.cosine_similarity_pdf = self.text_model.get_cosine_similarity_pdf()
         vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
         split_index = int(len(vector_data) * test_data_portion)
         training_data = vector_data[split_index:]
-        test_data = vector_data[:split_index]
+        test_data = vector_data[:split_index] if split_index > 0 else training_data
         print("training data length: {}".format(len(training_data)))
         print("test data length: {}".format(len(test_data)))
         self.lstm_model.train(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
+        self.error_pdf = self.lstm_model.get_pdf(
+                test_data,
+                mean=0,
+                normalizer=lambda s: (1 - s) / self.text_model.cosine_similarity_pdf(s)
+                )
+
+    def likelihood(self, s):
+        e = 1 - s
+        if e < 1:
+            return self.error_pdf(e)
+        else:
+            return 2 * self.error_pdf(1) - (2 - e) * self.error_pdf(2 - e)
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
@@ -38,11 +52,15 @@ class Word2pgm:
         else:
             return []
 
-    def print_cosine_similarity_densities(self):
-        print("cosine similarity densities (-1, 0, 1):")
-        print(self.cosine_similarity_pdf(-1))
-        print(self.cosine_similarity_pdf(0))
-        print(self.cosine_similarity_pdf(1))
+    def get_likeliest_word(self, unit_vector):
+        closest_w = None
+        p = -1
+        for w, v, prior in self.vocabulary:
+            s = np.dot(unit_vector, v) 
+            if (closest_w is None) or (similarity < s):
+                p = prior * self.likelihood(s)
+                closest_w = w
+        return closest_w
 
     def text_to_vectors(self, text):
         parsed_words, _ = self.parser.parse(text)
@@ -88,39 +106,58 @@ def test_rnn_training():
     lstm_neurons = 200
     lstm_count = 3
 
-    text = read_file("data/finnish/pg45271.txt")
+    text = read_file("data/finnish/pg45271.txt")[:100000]
     print("Read {} words of training data".format(len(text)))
     parser = FinnishParser()
-    parsed_words, sentence_start_indexes = parser.parse(text)
-    print("words parsed")
-    text_model = TextModel(parsed_words, sentence_start_indexes, base_size=base_vector_size, grammar_size=grammar_vector_size, word2vec_iterations=1000)
     print("Text model trained")
     lstm_model = AnnModel(base_vector_size + grammar_vector_size, look_back, lstm_neurons, lstm_count)
     print("ann created, starting training")
-    training_vectors = [text_model.word_to_vector(w) for w in parsed_words]
-    lstm_model.train(training_vectors, [], epochs=50, batch_size=500)
+    vector_data = [text_model.word_to_vector(w) for w in parsed_words]
+    split_index = int(len(vector_data) * 0.2)
+    training_data = vector_data[split_index:]
+    test_data = vector_data[:split_index]
+    lstm_model.train(training_data, [], epochs=60, batch_size=500)
     print("ann trained")
+    cosine_similarities = lstm_model.test(test_data)
+    df = pd.Series(cosine_similarities)
+    plt.figure()
+    df.hist(bins=100)
+    plt.show()
     predicted_vectors = lstm_model.predict_sequence(30)
     for v in predicted_vectors:
         print(text_model.likeliest(v))
 
-def predict_text(text_model, ann_model, words_to_predict, history=[], text=[]):
-    if words_to_predict > 0:
-        vector = ann_model.predict(history)
-        word = text_model.likeliest(vector)
-        history.append(text_model.word_to_vector(word))
-        text.append(word)
-        return predict_text(text_model, ann_model, words_to_predict-1, history, text)
-    else:
-        return text
+def plot_similarities(text_model, vector):
+    model_vectors = text_model.get_cosine_similarities(vector)
+    df = pd.Series(model_vectors)
+    plt.figure()
+    df.hist(bins=100)
+    plt.show()
 
+def test_cosine_similarity_distribution():
+    text = read_file("data/finnish/pg45271.txt")
+    parser = FinnishParser()
+    parsed_words, sentence_start_indexes = parser.parse(text)
+    text_model = TextModel(parsed_words, sentence_start_indexes, base_size=10, grammar_size=10, word2vec_iterations=100)
+    plot_similarities(text_model, np.random.rand(20))
 
 def main():
     #print_unique_words(["data/finnish/pg45271.txt"])
     #test_unique_counts(["data/finnish/pg45271.txt"])
     #test_base_form_word2vec()
-    test_rnn_training()
-    
+    #test_rnn_training()
+    text = read_file("data/finnish/pg45271.txt")[:1009]
+    parser = FinnishParser()
+    parsed_words, sentence_start_indexes = parser.parse(text)
+    text_model = TextModel(parsed_words, sentence_start_indexes, base_size=2, grammar_size=2, word2vec_iterations=100)
+    pdf = text_model.cosine_similarity_pdf
+    #plot_similarities(text_model, np.random.rand(4))
+    x = np.linspace(-1, 1, 100)
+    plt.plot(x, pdf(x))
+    print(pdf(0))
+    plt.show()
+
+
 if __name__ == "__main__":
     main()
 
@@ -128,24 +165,12 @@ if __name__ == "__main__":
 class Word2pgmTest(unittest.TestCase):
 
     default_settings = {
-            "base_vector_size": 7,
-            "grammar_vector_size": 5,
-            "look_back": 2,
+            "base_vector_size": 15,
+            "grammar_vector_size": 15,
+            "look_back": 5,
             "lstm_layer_size": 100,
             "lstm_layers": 2
             }
-
-    def test_probability_distributions(self):
-        word2pgm = Word2pgm(**self.default_settings)
-        text = read_file("data/finnish/pg45271.txt")[:10000]
-        word2pgm.train(text, lstm_epochs=1, lstm_batch_size=100, word2vec_iterations=1000, test_data_portion=0.5)
-        self.assertTrue(word2pgm.cosine_similarity_pdf(-1) < word2pgm.cosine_similarity_pdf(0),
-                msg="cosine similarity density in -1 was higher than in 0")
-        self.assertTrue(word2pgm.cosine_similarity_pdf(1) < word2pgm.cosine_similarity_pdf(0),
-                msg="cosine similarity density in 1 was higher than in 0")
-        self.assertAlmostEqual(word2pgm.cosine_similarity_pdf(-1), word2pgm.cosine_similarity_pdf(1),
-                delta=0.01,
-                msg="cosine similarity density in -1 was not the same as in 1")
 
     def test_predicting_with_tiny_input(self):
         word2pgm = Word2pgm(**self.default_settings)
