@@ -1,9 +1,13 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import gensim
 import nsphere
 from scipy.stats import truncnorm, beta
 import numpy as np
 import itertools
 import unittest
+import math
 import pdb
 from parsing import FinnishParser, AnalysedWord
 
@@ -60,7 +64,7 @@ class TextModel:
                 vocabulary.append((
                     word,
                     gensim.matutils.unitvec(np.concatenate((v_b, v_g))),
-                    self.get_encounter_count(word)
+                    math.log(self.get_encounter_count(word) / self.counted_data_size)
                     ))
         return vocabulary
 

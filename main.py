@@ -8,6 +8,8 @@ from lstm import AnnModel
 import matplotlib.pyplot as plt
 import numpy as np
 import unittest
+import math
+import nsphere
 import pdb
 
 
@@ -16,13 +18,15 @@ class Word2pgm:
     def __init__(self, base_vector_size, grammar_vector_size, look_back, lstm_layer_size, lstm_layers):
         self.base_vector_size = base_vector_size
         self.grammar_vector_size = grammar_vector_size
+        self.vector_size = base_vector_size + grammar_vector_size
         self.parser = FinnishParser()
-        self.lstm_model = AnnModel(base_vector_size + grammar_vector_size, look_back, lstm_layer_size, lstm_layers)
+        self.lstm_model = AnnModel(self.vector_size, look_back, lstm_layer_size, lstm_layers)
 
     def train(self, text, lstm_epochs, lstm_batch_size, word2vec_iterations=1000, test_data_portion=0.2):
         parsed_words, sentence_start_indexes = self.parser.parse(text)
         print("words parsed")
         self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
+        self.vocabulary = self.text_model.get_vocabulary()
         vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
         split_index = int(len(vector_data) * test_data_portion)
         training_data = vector_data[split_index:]
@@ -30,18 +34,24 @@ class Word2pgm:
         print("training data length: {}".format(len(training_data)))
         print("test data length: {}".format(len(test_data)))
         self.lstm_model.train(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
-        self.error_pdf = self.lstm_model.get_pdf(
+        self.error_logpdf = self.lstm_model.get_logpdf(
                 test_data,
                 mean=0,
-                normalizer=lambda s: (1 - s) / self.text_model.cosine_similarity_pdf(s)
+                normalizer=self.distance
                 )
 
-    def likelihood(self, s):
-        e = 1 - s
+    def distance(self, s):
+        return nsphere.cap(1, self.vector_size, math.acos(s))
+
+    def evidence_log_probability(self, s):
+        return math.log(nsphere.surface(math.sin(math.acos(s)), self.vector_size - 1))
+
+    def log_likelihood(self, s):
+        e = self.distance(s)
         if e < 1:
-            return self.error_pdf(e)
+            return self.error_logpdf(e)
         else:
-            return 2 * self.error_pdf(1) - (2 - e) * self.error_pdf(2 - e)
+            return 2 * self.error_logpdf(1) - (2 - e) * self.error_logpdf(2 - e)
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
@@ -54,11 +64,12 @@ class Word2pgm:
 
     def get_likeliest_word(self, unit_vector):
         closest_w = None
-        p = -1
-        for w, v, prior in self.vocabulary:
+        best_p = -1
+        for w, v, log_prior in self.vocabulary:
             s = np.dot(unit_vector, v) 
-            if (closest_w is None) or (similarity < s):
-                p = prior * self.likelihood(s)
+            p = log_prior + self.log_likelihood(s) - self.evidence_log_probability(s)
+            if (closest_w is None) or (best_p < p):
+                best_p = p
                 closest_w = w
         return closest_w
 

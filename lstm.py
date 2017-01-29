@@ -67,7 +67,7 @@ class AnnModel:
     def cosine_similarity(v1, v2):
         return np.dot(gensim.matutils.unitvec(v1), gensim.matutils.unitvec(v2))
 
-    def get_pdf(self, vectors, mean=0, normalizer=lambda x: x, sentence_start_indexes=[]):
+    def get_logpdf(self, vectors, mean=0, normalizer=lambda x: x, sentence_start_indexes=[]):
         unpaddedX, unpaddedY = self.create_training_data(vectors)
         paddedX, paddedY = self.create_padded_training_data(vectors, sentence_start_indexes)
         X = np.concatenate((unpaddedX, paddedX))
@@ -75,7 +75,7 @@ class AnnModel:
         predictions = self.model.predict(X)
         similarities = [normalizer(self.cosine_similarity(y, y_p)) for y, y_p in zip(Y, predictions)]
         sd = np.std(similarities)
-        return lambda s: norm.pdf(s, mean, sd)
+        return lambda s: norm.logpdf(s, mean, sd)
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
