@@ -79,7 +79,8 @@ class AnnModel:
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
-        return self.model.predict(prediction_data)[0]
+        vector = self.model.predict(prediction_data)[0]
+        return gensim.matutils.unitvec(vector)
 
 
 class TestAnnModel(unittest.TestCase):
@@ -126,6 +127,8 @@ class TestAnnModel(unittest.TestCase):
                 ]
         for x, expected_y in test_cases:
             y = model.predict(x)
+            np.testing.assert_array_equal(y, gensim.matutils.unitvec(y),
+                    err_msg="Predicted vector was not unit vector")
             s = model.cosine_similarity(expected_y, y)
             self.assertAlmostEqual(1.0, s, delta=0.02)
 
