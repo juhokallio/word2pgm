@@ -64,20 +64,6 @@ class TextModel:
                     ))
         return vocabulary
 
-    def likeliest(self, vector):
-        closest_w = None
-        similarity = -1
-        unit_vector = gensim.matutils.unitvec(vector)
-        for b, v_b in self.base.items():
-            for g, v_g in self.grammar.items():
-                target_unit_vector = gensim.matutils.unitvec(np.concatenate((v_b, v_g)))
-                word = AnalysedWord(b, g)
-                s = np.dot(unit_vector, target_unit_vector)# * self.get_encounter_count(word)
-                if (closest_w is None) or (similarity < s):
-                    similarity = s
-                    closest_w = word
-        return closest_w
-
     def get_cosine_similarities(self, vector):
         model_vectors = []
         unit_vector = gensim.matutils.unitvec(vector)
@@ -98,11 +84,6 @@ class TestTextModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.parser = FinnishParser()
-
-    def test_likeliest_base_form(self):
-        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissat")
-        text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
-        self.assertEqual("kissa", text_model.likeliest(np.zeros(5)).base)
 
     def test_init(self):
         parsed_words, sentence_start_indexes = self.parser.parse("Ohjelmointi on mukavaa. Se ei ikinä ärsytä.")

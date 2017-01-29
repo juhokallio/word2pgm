@@ -46,7 +46,7 @@ class Word2pgm:
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
             vector = self.lstm_model.predict(history)
-            word = self.text_model.likeliest(vector)
+            word = self.get_likeliest_word(vector)
             history.append(self.text_model.word_to_vector(word))
             return [word] + self.predict_text(words_to_predict-1, history)
         else:
@@ -99,34 +99,6 @@ def print_unique_words(file_names):
     for w in words:
         print(w)
 
-def test_rnn_training():
-    look_back = 10
-    base_vector_size = 10
-    grammar_vector_size = 10
-    lstm_neurons = 200
-    lstm_count = 3
-
-    text = read_file("data/finnish/pg45271.txt")[:100000]
-    print("Read {} words of training data".format(len(text)))
-    parser = FinnishParser()
-    print("Text model trained")
-    lstm_model = AnnModel(base_vector_size + grammar_vector_size, look_back, lstm_neurons, lstm_count)
-    print("ann created, starting training")
-    vector_data = [text_model.word_to_vector(w) for w in parsed_words]
-    split_index = int(len(vector_data) * 0.2)
-    training_data = vector_data[split_index:]
-    test_data = vector_data[:split_index]
-    lstm_model.train(training_data, [], epochs=60, batch_size=500)
-    print("ann trained")
-    cosine_similarities = lstm_model.test(test_data)
-    df = pd.Series(cosine_similarities)
-    plt.figure()
-    df.hist(bins=100)
-    plt.show()
-    predicted_vectors = lstm_model.predict_sequence(30)
-    for v in predicted_vectors:
-        print(text_model.likeliest(v))
-
 def plot_similarities(text_model, vector):
     model_vectors = text_model.get_cosine_similarities(vector)
     df = pd.Series(model_vectors)
@@ -145,7 +117,6 @@ def main():
     #print_unique_words(["data/finnish/pg45271.txt"])
     #test_unique_counts(["data/finnish/pg45271.txt"])
     #test_base_form_word2vec()
-    #test_rnn_training()
     text = read_file("data/finnish/pg45271.txt")[:1009]
     parser = FinnishParser()
     parsed_words, sentence_start_indexes = parser.parse(text)
