@@ -49,6 +49,9 @@ class FinnishParser:
         first_form = omorfi_form[0][0]
         return AnalysedWord(self.omorfi_to_base(first_form), self.omorfi_to_grammar(first_form))
 
+    def is_valid_word(self, word):
+        return word.grammar != "[GUESS=UNKNOWN][WEIGHT=inf]"
+
 
 class TestParsing(unittest.TestCase):
 
@@ -104,3 +107,9 @@ class TestParsing(unittest.TestCase):
         ellipsis = self.parser.analyse("...")
         self.assertEqual(ellipsis.base, "...")
         self.assertEqual(ellipsis.grammar, "[UPOS=PUNCT][BOUNDARY=SENTENCE]")
+
+    def test_is_valid_word(self):
+        self.assertTrue(self.parser.is_valid_word(self.parser.analyse("koiralle")))
+        self.assertTrue(self.parser.is_valid_word(self.parser.analyse("alkaa")))
+
+        self.assertFalse(self.parser.is_valid_word(self.parser.analyse("koirelle")))

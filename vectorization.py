@@ -56,16 +56,17 @@ class TextModel:
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
         return self.counts[word.base][word.grammar] + 1 if word_encountered else 1
 
-    def get_vocabulary(self):
+    def get_vocabulary(self, word_filter):
         vocabulary = []
         for b, v_b in self.base.items():
             for g, v_g in self.grammar.items():
                 word = AnalysedWord(b, g)
-                vocabulary.append((
-                    word,
-                    gensim.matutils.unitvec(np.concatenate((v_b, v_g))),
-                    math.log(self.get_encounter_count(word) / self.counted_data_size)
-                    ))
+                if word_filter(word):
+                    vocabulary.append((
+                        word,
+                        gensim.matutils.unitvec(np.concatenate((v_b, v_g))),
+                        math.log(self.get_encounter_count(word) / self.counted_data_size)
+                        ))
         return vocabulary
 
     def get_cosine_similarities(self, vector):
@@ -115,11 +116,17 @@ class TestTextModel(unittest.TestCase):
     def test_get_vocabulary(self):
         parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissalle kissan kissan")
         text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
-        vocabulary = text_model.get_vocabulary()
+        vocabulary = text_model.get_vocabulary(lambda w: True)
         self.assertEqual(3, len(vocabulary))
-        priors = [prior for w, v, prior in vocabulary]
-        self.assertEqual([2, 2, 3], sorted(priors))
         base_forms = [w.base for w, v, prior in vocabulary]
         self.assertEqual(["kissa", "kissa", "kissa"], base_forms)
         first_vector = vocabulary[0][1]
         self.assertEqual(5, len(first_vector))
+
+    def test_get_vocabulary_with_filter(self):
+        parsed_words, sentence_start_indexes = self.parser.parse("Kissa kissa lintu apina koira")
+        text_model = TextModel(parsed_words, sentence_start_indexes, base_size=3, grammar_size=2)
+        vocabulary = text_model.get_vocabulary(lambda w: w.base == "koira")
+        self.assertEqual(1, len(vocabulary))
+        w, v, prior = vocabulary[0]
+        self.assertEqual("koira", w.base)
