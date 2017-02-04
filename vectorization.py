@@ -54,18 +54,19 @@ class TextModel:
 
     def get_encounter_count(self, word):
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
-        return self.counts[word.base][word.grammar] + 1 if word_encountered else 1
+        return self.counts[word.base][word.grammar] if word_encountered else 0
 
-    def get_vocabulary(self, word_filter):
+    def get_vocabulary(self, word_filter, minimum_counts):
         vocabulary = []
         for b, v_b in self.base.items():
             for g, v_g in self.grammar.items():
                 word = AnalysedWord(b, g)
-                if word_filter(word):
+                counts = self.get_encounter_count(word)
+                if counts >= minimum_counts and word_filter(word):
                     vocabulary.append((
                         word,
                         gensim.matutils.unitvec(np.concatenate((v_b, v_g))),
-                        math.log(self.get_encounter_count(word) / self.counted_data_size)
+                        math.log((counts + 1) / (self.counted_data_size + self.counted_data_size))
                         ))
         return vocabulary
 

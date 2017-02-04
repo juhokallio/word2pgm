@@ -26,7 +26,8 @@ class Word2pgm:
         parsed_words, sentence_start_indexes = self.parser.parse(text)
         print("words parsed")
         self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
-        self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word)
+        self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word, 4)
+        print("Vocabulary size {}".format(len(self.vocabulary)))
         vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
         split_index = int(len(vector_data) * test_data_portion)
         training_data = vector_data[split_index:]
