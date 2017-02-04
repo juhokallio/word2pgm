@@ -43,9 +43,19 @@ class TextModel:
 
     @staticmethod
     def split_to_sentences(words, sentence_start_indexes):
+        def split_to_grammar_windows(sentence, window_size):
+            if len(sentence) < window_size:
+                return [[w[1] for w in sentence]]
+            windows = []
+            for i in range(window_size, len(sentence) + 1):
+                window = sentence[i-window_size:i]
+                windows.append([w[1] for w in window])
+            return windows
+
         sentences = np.split(words, sentence_start_indexes)
         base_sentences = [[w[0] for w in s] for s in sentences]
-        grammar_sentences = [[w[1] for w in s] for s in sentences]
+        sentences_as_windows = [split_to_grammar_windows(s, 3) for s in sentences]
+        grammar_sentences = [w for window in sentences_as_windows for w in window]
         return base_sentences, grammar_sentences
 
     def word_to_vector(self, word):
