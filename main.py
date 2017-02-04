@@ -153,13 +153,15 @@ class Word2pgmTest(unittest.TestCase):
 
     def test_predicting_with_tiny_input(self):
         word2pgm = Word2pgm(**self.default_settings)
-        text = "Koiraa alkaa ärsyttämään ohjelmointi. Se ei enää jaksa."
-        word2pgm.train(text, lstm_epochs=50, lstm_batch_size=300, word2vec_iterations=1, test_data_portion=0.0)
+        text = "Koiraa alkaa hermostuttamaan ohjelmointi. Se ei enää jaksa."
+        word2pgm.train(text, lstm_epochs=200, lstm_batch_size=300, word2vec_iterations=1, test_data_portion=0.0)
 
-        history = word2pgm.text_to_vectors("Koiraa alkaa ärsyttämään")
-        predicted = word2pgm.predict_text(1, history=history)
+        history = word2pgm.text_to_vectors("Koiraa alkaa hermostuttamaan")
+        predicted = word2pgm.predict_text(2, history=history)
         self.assertEqual(predicted[0].base, "ohjelmointi")
+        self.assertEqual(predicted[1].base, ".")
 
         predicted_text = word2pgm.predict_text(30, history=[])
         self.assertEqual(predicted_text[0].base, "koira")
         self.assertEqual(predicted_text[1].base, "alkaa")
+        self.assertEqual(predicted_text[2].base, "hermostuttaa")
