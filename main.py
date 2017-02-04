@@ -23,7 +23,8 @@ class Word2pgm:
         self.lstm_model = AnnModel(self.vector_size, look_back, lstm_layer_size, lstm_layers)
 
     def train(self, text, lstm_epochs, lstm_batch_size, word2vec_iterations=1000, test_data_portion=0.2):
-        parsed_words, sentence_start_indexes = self.parser.parse(text)
+        parsed_words, originals, sentence_start_indexes = self.parser.parse(text)
+        self.original_words = {w: o for w, o in zip(parsed_words, originals)}
         print("words parsed")
         self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
         self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word, 4)
@@ -54,7 +55,7 @@ class Word2pgm:
             vector = self.lstm_model.predict(history)
             word = self.get_likeliest_word(vector)
             history.append(self.text_model.word_to_vector(word))
-            return [word] + self.predict_text(words_to_predict-1, history)
+            return [self.original_words[word]] + self.predict_text(words_to_predict-1, history)
         else:
             return []
 
@@ -70,7 +71,7 @@ class Word2pgm:
         return closest_w
 
     def text_to_vectors(self, text):
-        parsed_words, _ = self.parser.parse(text)
+        parsed_words, _, _ = self.parser.parse(text)
         return [self.text_model.word_to_vector(w) for w in parsed_words]
 
 

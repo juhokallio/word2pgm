@@ -42,7 +42,7 @@ class FinnishParser:
         tokens = self.tokenize(text)
         parsed_words = [self.analyse(t) for t in tokens]
         sentence_start_indexes = self.get_sentence_start_indexes(tokens)
-        return parsed_words, sentence_start_indexes
+        return parsed_words, tokens, sentence_start_indexes
 
     def analyse(self, word):
         omorfi_form = self.omorfi.analyse(word)
