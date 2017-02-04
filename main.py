@@ -36,7 +36,6 @@ class Word2pgm:
         self.lstm_model.train(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
         self.error_logpdf = self.lstm_model.get_logpdf(
                 test_data,
-                mean=0,
                 normalizer=self.distance
                 )
 
@@ -47,11 +46,7 @@ class Word2pgm:
         return math.log(nsphere.surface(math.sin(math.acos(s)), self.vector_size - 1))
 
     def log_likelihood(self, s):
-        e = self.distance(s)
-        if e < 1:
-            return self.error_logpdf(e)
-        else:
-            return 2 * self.error_logpdf(1) - (2 - e) * self.error_logpdf(2 - e)
+        return self.error_logpdf(self.distance(s))
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:

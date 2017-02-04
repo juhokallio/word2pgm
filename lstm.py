@@ -4,10 +4,12 @@
 import gensim
 import unittest
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import truncnorm
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
+import matplotlib.pyplot as plt
+import pandas as pd
 import pdb
 
 
@@ -67,15 +69,16 @@ class AnnModel:
     def cosine_similarity(v1, v2):
         return np.dot(gensim.matutils.unitvec(v1), gensim.matutils.unitvec(v2))
 
-    def get_logpdf(self, vectors, mean=0, normalizer=lambda x: x, sentence_start_indexes=[]):
+    def get_logpdf(self, vectors, normalizer=lambda x: x, sentence_start_indexes=[]):
         unpaddedX, unpaddedY = self.create_training_data(vectors)
         paddedX, paddedY = self.create_padded_training_data(vectors, sentence_start_indexes)
         X = np.concatenate((unpaddedX, paddedX))
         Y = np.concatenate((unpaddedY, paddedY))
         predictions = self.model.predict(X)
         similarities = [normalizer(self.cosine_similarity(y, y_p)) for y, y_p in zip(Y, predictions)]
+        similarities.extend([-1 * s for s in similarities])
         sd = np.std(similarities)
-        return lambda s: norm.logpdf(s, mean, sd)
+        return lambda s: truncnorm.logpdf(s, 0, np.inf, 0, sd)
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
