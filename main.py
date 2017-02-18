@@ -27,7 +27,7 @@ class Word2pgm:
         self.original_words = {w: o for w, o in zip(parsed_words, originals)}
         print("words parsed")
         self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
-        self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word, 4)
+        self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word, 1)
         print("Vocabulary size {}".format(len(self.vocabulary)))
         vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
         split_index = int(len(vector_data) * test_data_portion)
@@ -35,7 +35,7 @@ class Word2pgm:
         test_data = vector_data[:split_index] if split_index > 0 else training_data
         print("training data length: {}".format(len(training_data)))
         print("test data length: {}".format(len(test_data)))
-        self.lstm_model.train(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
+        self.lstm_model.train_with_discriminator(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
         self.error_logpdf = self.lstm_model.get_logpdf(
                 test_data,
                 normalizer=self.distance
@@ -154,14 +154,14 @@ class Word2pgmTest(unittest.TestCase):
     def test_predicting_with_tiny_input(self):
         word2pgm = Word2pgm(**self.default_settings)
         text = "Koiraa alkaa hermostuttamaan ohjelmointi. Se ei enää jaksa."
-        word2pgm.train(text, lstm_epochs=200, lstm_batch_size=300, word2vec_iterations=1, test_data_portion=0.0)
+        word2pgm.train(text, lstm_epochs=50, lstm_batch_size=2, word2vec_iterations=1, test_data_portion=0.0)
 
         history = word2pgm.text_to_vectors("Koiraa alkaa hermostuttamaan")
         predicted = word2pgm.predict_text(2, history=history)
-        self.assertEqual(predicted[0].base, "ohjelmointi")
-        self.assertEqual(predicted[1].base, ".")
+        self.assertEqual(predicted[0], "ohjelmointi")
+        self.assertEqual(predicted[1], ".")
 
         predicted_text = word2pgm.predict_text(30, history=[])
-        self.assertEqual(predicted_text[0].base, "koira")
-        self.assertEqual(predicted_text[1].base, "alkaa")
-        self.assertEqual(predicted_text[2].base, "hermostuttaa")
+        self.assertEqual(predicted_text[0], "Koiraa")
+        self.assertEqual(predicted_text[1], "alkaa")
+        self.assertEqual(predicted_text[2], "hermostuttamaan")

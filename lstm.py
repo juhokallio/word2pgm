@@ -5,12 +5,19 @@ import gensim
 import unittest
 import numpy as np
 from scipy.stats import truncnorm
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import LSTM
+from keras.models import Sequential, Model
+from keras.layers import Dense, Input, LSTM, merge, Flatten, Reshape, Lambda
 import matplotlib.pyplot as plt
+from keras.utils.visualize_util import plot
 import pandas as pd
+from keras import backend as K
+import tensorflow as tf
 import pdb
+
+
+def unitvectorize(x):
+    norm = K.sqrt(K.sum(K.square(x), 1, keepdims=True))
+    return x / norm
 
 
 class AnnModel:
@@ -18,13 +25,31 @@ class AnnModel:
     def __init__(self, vector_size, look_back=10, lstm_size=50, lstm_count=2):
         self.look_back = look_back
         self.word_vector_size = vector_size
-        self.model = Sequential()
-        self.model.add(LSTM(lstm_size, input_dim=self.word_vector_size, input_length=look_back, return_sequences=True))
+
+        h = Input(shape=(look_back, vector_size), dtype="float32", name="history")
+        x = LSTM(lstm_size, input_dim=self.word_vector_size, input_length=look_back, return_sequences=True)(h)
         for i in range(0, lstm_count - 2):
-            self.model.add(LSTM(lstm_size, return_sequences=True))
-        self.model.add(LSTM(lstm_size))
-        self.model.add(Dense(self.word_vector_size))
-        self.model.compile(loss="cosine_proximity", optimizer="adam")
+            x = LSTM(lstm_size, return_sequences=True)(x)
+        x = LSTM(lstm_size)(x)
+        vector_predictions = Dense(self.word_vector_size)(x)
+        self.generator = Model(input=h, output=vector_predictions, name="generator")
+        self.generator.compile(loss="cosine_proximity", optimizer="adam")
+
+        input_vector = Input(shape=(look_back+1, vector_size), dtype="float32", name="discriminator_input")
+        x = Lambda(unitvectorize)(input_vector)
+        x = LSTM(lstm_size, input_dim=self.word_vector_size, input_length=look_back+1, return_sequences=True)(input_vector)
+        for i in range(0, lstm_count - 2):
+            x = LSTM(lstm_size, return_sequences=True)(x)
+        x = LSTM(lstm_size)(x)
+        authenticity_classification = Dense(1, activation="sigmoid")(x)
+        self.discriminator = Model(input=input_vector, output=authenticity_classification, name="discriminator")
+        self.discriminator.compile(loss="binary_crossentropy", optimizer="adam")
+
+        x = merge([h, Reshape((1, vector_size))(vector_predictions)], mode="concat", concat_axis=1)
+        x = self.discriminator(x)
+        self.discriminator_on_generator = Model(input=h, output=x)
+        self.discriminator_on_generator.compile(loss="binary_crossentropy", optimizer="adam")
+        plot(self.discriminator_on_generator, to_file="model.png", show_shapes=True)
 
     def create_training_data(self, vectors):
         dataX, dataY = [], []
@@ -63,7 +88,34 @@ class AnnModel:
         X = np.concatenate((unpaddedX, paddedX))
         Y = np.concatenate((unpaddedY, paddedY))
         print("Training data created")
-        return self.model.fit(X, Y, nb_epoch=epochs, batch_size=batch_size, verbose=2)
+        return self.generator.fit(X, Y, nb_epoch=epochs, batch_size=batch_size, verbose=2)
+
+    def train_with_discriminator(self, vectors, sentence_start_indexes=[], epochs=20, batch_size=100, updates_per_batch=50):
+        unpaddedX, unpaddedY = self.create_training_data(vectors)
+        paddedX, paddedY = self.create_padded_training_data(vectors, sentence_start_indexes)
+        X = np.concatenate((unpaddedX, paddedX))
+        Y = np.concatenate((unpaddedY, paddedY))
+        d_loss = None
+        g_loss = None
+        for epoch in range(epochs):
+            for index in range(int(X.shape[0]/batch_size)):
+                X_batch = X[index*batch_size:(index+1)*batch_size]
+                Y_batch = Y[index*batch_size:(index+1)*batch_size]
+                predicted = self.generator.predict(X_batch)
+                X_discriminator = np.concatenate((
+                    np.concatenate((X_batch, X_batch)),
+                    np.expand_dims(np.concatenate((Y_batch, predicted)), 1)
+                    ), axis=1)
+                y_discriminator = [1] * batch_size + [0] * batch_size
+                for i in range(updates_per_batch):
+                    d_loss = self.discriminator.train_on_batch(X_discriminator, y_discriminator)
+                self.discriminator.trainable = False
+                for i in range(updates_per_batch):
+                    g_loss = self.discriminator_on_generator.train_on_batch(X_batch, [1] * batch_size)
+                self.discriminator.trainable = True
+            print("Epoch {} finished".format(epoch))
+            print("discriminator loss {}".format(d_loss))
+            print("generator loss {}".format(g_loss))
 
     @staticmethod
     def cosine_similarity(v1, v2):
@@ -74,7 +126,7 @@ class AnnModel:
         paddedX, paddedY = self.create_padded_training_data(vectors, sentence_start_indexes)
         X = np.concatenate((unpaddedX, paddedX))
         Y = np.concatenate((unpaddedY, paddedY))
-        predictions = self.model.predict(X)
+        predictions = self.generator.predict(X)
         similarities = [normalizer(self.cosine_similarity(y, y_p)) for y, y_p in zip(Y, predictions)]
         similarities.extend([-1 * s for s in similarities])
         sd = np.std(similarities)
@@ -82,7 +134,7 @@ class AnnModel:
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
-        vector = self.model.predict(prediction_data)[0]
+        vector = self.generator.predict(prediction_data)[0]
         return gensim.matutils.unitvec(vector)
 
 
@@ -118,22 +170,27 @@ class TestAnnModel(unittest.TestCase):
         np.testing.assert_array_equal(Y, [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
     def test_simple_model(self):
-        model = AnnModel(2, look_back=2, lstm_size=200, lstm_count=2)
-        data = [[0.1, 0.1], [0.1, 0.2], [0.1, 0.3], [0.1, 0.4], [0.1, 0.5]]
-        model.train(data, epochs=100, batch_size=5)
+        model = AnnModel(2, look_back=2, lstm_size=40, lstm_count=2)
+        training_data = [[0.1, 0.1], [0.1, 0.2], [0.1, 0.3], [0.1, 0.4], [0.1, 0.5]]
+        model.train_with_discriminator(training_data, epochs=55, batch_size=5, updates_per_batch=200)
+
         test_cases = [
-                (np.array([0.0, 0.0]), np.array([0.1, 0.1])),
-                (np.array([0.0, 0.1]), np.array([0.1, 0.2])),
-                (np.array([0.1, 0.2]), np.array([0.1, 0.3])),
-                (np.array([0.1, 0.3]), np.array([0.1, 0.4])),
-                (np.array([0.1, 0.4]), np.array([0.1, 0.5]))
+                (np.array([[0.0, 0.0], [0.0, 0.0]]), np.array([0.1, 0.1])),
+                (np.array([[0.0, 0.0], [0.1, 0.1]]), np.array([0.1, 0.2])),
+                (np.array([[0.1, 0.1], [0.1, 0.2]]), np.array([0.1, 0.3])),
+                (np.array([[0.1, 0.2], [0.1, 0.3]]), np.array([0.1, 0.4])),
+                (np.array([[0.1, 0.3], [0.1, 0.4]]), np.array([0.1, 0.5]))
                 ]
         for x, expected_y in test_cases:
+            discriminator_x = np.array([np.append(x, [expected_y], axis=0)])
+            self.assertAlmostEqual(1.0, model.discriminator.predict(discriminator_x)[0][0], delta=0.1,
+                    msg="Discriminator didn't recognize training data")
             y = model.predict(x)
             np.testing.assert_array_equal(y, gensim.matutils.unitvec(y),
                     err_msg="Predicted vector was not unit vector")
             s = model.cosine_similarity(expected_y, y)
-            self.assertAlmostEqual(1.0, s, delta=0.02)
+            self.assertAlmostEqual(1.0, s, delta=0.2,
+                    msg="Predicted vector didn't match training data")
 
     def test_create_input_data(self):
         model = AnnModel(2, look_back=4)
@@ -152,3 +209,13 @@ class TestAnnModel(unittest.TestCase):
         model = AnnModel(10, look_back=4)
         data_from_empty = model.create_input_data([])
         self.assertEqual((1, 4, 10), data_from_empty.shape)
+
+    def test_unitvectorize(self):
+        sess = tf.InteractiveSession()
+        data = np.array([[0.0, 3.0], [1.0, 2.0]])
+        unitvector_data = np.array([
+                [0.0, 1.0],
+                gensim.matutils.unitvec(data[1])
+                ])
+        np.testing.assert_array_almost_equal(unitvectorize(data).eval(), unitvector_data, decimal=5,
+                err_msg="Incorrect result from unitvectorize tf function")
