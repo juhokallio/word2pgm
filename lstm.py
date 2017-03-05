@@ -137,6 +137,11 @@ class AnnModel:
         vector = self.generator.predict(prediction_data)[0]
         return gensim.matutils.unitvec(vector)
 
+    def predict_batch(self, data):
+        X = np.concatenate([self.create_input_data(h) for h in data])
+        predictions = self.generator.predict(X)
+        return  [gensim.matutils.unitvec(v) for v in predictions]
+
 
 class TestAnnModel(unittest.TestCase):
 

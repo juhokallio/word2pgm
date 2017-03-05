@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import unittest
 import math
+from scipy.stats import truncnorm
 import nsphere
 import pdb
+import statutils
 
 
 class Word2pgm:
@@ -36,19 +38,19 @@ class Word2pgm:
         print("training data length: {}".format(len(training_data)))
         print("test data length: {}".format(len(test_data)))
         self.lstm_model.train_with_discriminator(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
-        self.error_logpdf = self.lstm_model.get_logpdf(
-                test_data,
-                normalizer=self.distance
-                )
+        self.error_dist = self.get_error_logpdf(test_data)
 
-    def distance(self, s):
-        return nsphere.cap(1, self.vector_size, math.acos(s))
+    def get_error_logpdf(self, test_data):
+        test_predictions = self.lstm_model.predict_batch(test_data)
+        means = [v for _, v, _ in self.vocabulary]
+        std = statutils.get_evidence_variance(test_predictions, means)
+        return truncnorm(0, np.inf, 0, std)
 
     def evidence_log_probability(self, s):
         return math.log(nsphere.surface(math.sin(math.acos(s)), self.vector_size - 1))
 
     def log_likelihood(self, s):
-        return self.error_logpdf(self.distance(s))
+        return self.error_dist.logpdf(statutils.distance(self.vector_size, s))
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
