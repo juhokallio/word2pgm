@@ -3,7 +3,7 @@
 
 import random
 from vectorization import TextModel
-from parsing import FinnishParser
+from parsing import FinnishParser, AnalysedWord
 from lstm import AnnModel
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,68 +13,103 @@ from scipy.stats import truncnorm
 import nsphere
 import pdb
 import statutils
+from operator import itemgetter
 
+
+class Theorem:
+
+    def __init__(self, name, vector_size, applier):
+        self.name = name
+        self.vector_size = vector_size
+        self.apply = applier
 
 class Word2pgm:
 
-    def __init__(self, base_vector_size, grammar_vector_size, look_back, lstm_layer_size, lstm_layers):
-        self.base_vector_size = base_vector_size
-        self.grammar_vector_size = grammar_vector_size
-        self.vector_size = base_vector_size + grammar_vector_size
+    def __init__(self, theorems, look_back, lstm_layer_size, lstm_layers):
+        self.theorems = theorems
+        self.vector_size = sum([t.vector_size for t in theorems])
         self.parser = FinnishParser()
-        self.lstm_model = AnnModel(self.vector_size, look_back, lstm_layer_size, lstm_layers)
+        self.lstm_model = AnnModel(self.theorems, look_back, lstm_layer_size, lstm_layers)
 
     def train(self, text, lstm_epochs, lstm_batch_size, word2vec_iterations=1000, test_data_portion=0.2):
         parsed_words, originals, sentence_start_indexes = self.parser.parse(text)
         self.original_words = {w: o for w, o in zip(parsed_words, originals)}
         print("words parsed")
-        self.text_model = TextModel(parsed_words, sentence_start_indexes, base_size=self.base_vector_size, grammar_size=self.grammar_vector_size, word2vec_iterations=word2vec_iterations)
+        self.text_model = TextModel(parsed_words, sentence_start_indexes, self.theorems, word2vec_iterations=word2vec_iterations)
         self.vocabulary = self.text_model.get_vocabulary(self.parser.is_valid_word, 1)
         print("Vocabulary size {}".format(len(self.vocabulary)))
-        vector_data = [self.text_model.word_to_vector(w) for w in parsed_words]
+        vector_data = [self.text_model.word_to_concat_vector(w) for w in parsed_words]
         split_index = int(len(vector_data) * test_data_portion)
         training_data = vector_data[split_index:]
         test_data = vector_data[:split_index] if split_index > 0 else training_data
         print("training data length: {}".format(len(training_data)))
         print("test data length: {}".format(len(test_data)))
         self.lstm_model.train_with_discriminator(training_data, [], epochs=lstm_epochs, batch_size=lstm_batch_size)
-        self.error_dist = self.get_error_logpdf(test_data)
+        self.error_dists = self.get_error_logpdfs(test_data)
 
-    def get_error_logpdf(self, test_data):
+    def get_error_logpdfs(self, test_data):
         test_predictions = self.lstm_model.predict_batch(test_data)
-        means = [v for _, v, _ in self.vocabulary]
-        std = statutils.get_evidence_variance(test_predictions, means)
-        return truncnorm(0, np.inf, 0, std)
+        dists = {}
+        for theorem, theorem_predictions in zip(self.theorems, test_predictions):
+            means = [v for _, v in self.text_model.get_theorem_vocabulary(theorem)]
+            std = statutils.get_evidence_variance(theorem_predictions, means)
+            dists[theorem.name] = truncnorm(0, np.inf, 0, std)
+        return dists
 
     def evidence_log_probability(self, s):
         return math.log(nsphere.surface(math.sin(math.acos(s)), self.vector_size - 1))
 
-    def log_likelihood(self, s):
-        return self.error_dist.logpdf(statutils.distance(self.vector_size, s))
+    def log_likelihood(self, s, theorem):
+        error = statutils.distance(theorem.vector_size, s)
+        return self.error_dists[theorem.name].logpdf(error)
 
     def predict_text(self, words_to_predict, history=[]):
         if words_to_predict > 0:
-            vector = self.lstm_model.predict(history)
-            word = self.get_likeliest_word(vector)
-            history.append(self.text_model.word_to_vector(word))
-            return [self.original_words[word]] + self.predict_text(words_to_predict-1, history)
+            vectors = self.lstm_model.predict(history)
+            word = self.get_likeliest_word(vectors)
+            if word in self.original_words:
+                original = self.original_words[word]
+            else:
+                original = "[{}] UNKNOWN".format(word.base)
+            print(original)
+            history.append(self.text_model.word_to_concat_vector(word))
+            return [original] + self.predict_text(words_to_predict-1, history)
         else:
             return []
 
-    def get_likeliest_word(self, unit_vector):
+    def get_prior(self, word):
+        counts = self.text_model.get_encounter_count(word)
+        return math.log((counts + 1) / (self.text_model.counted_data_size * 2))
+
+    def get_likeliest_theorem_solutions(self, vector, theorem, solution_count=10):
+        solutions = [(w, np.dot(v, vector)) for w, v in self.text_model.get_theorem_vocabulary(theorem)]
+        return sorted(solutions, key=itemgetter(1))[:solution_count]
+
+    def get_likeliest_solutions(self, vectors, theorem_solution_count=10):
+        solutions = []
+        for i, theorem in enumerate(self.theorems):
+            solutions.append(self.get_likeliest_theorem_solutions(vectors[i][0], theorem, theorem_solution_count))
+        return solutions
+
+    def get_likeliest_word(self, vectors):
         closest_w = None
         best_p = -1
-        for w, v, log_prior in self.vocabulary:
-            s = np.dot(unit_vector, v) 
-            p = log_prior + self.log_likelihood(s) - self.evidence_log_probability(s)
+
+        solutions = self.get_likeliest_solutions(vectors)
+        for w_b, s_b in solutions[0]:
+            for w_g, s_g in solutions[1]:
+                log_likelihood = self.log_likelihood(s_b, self.theorems[0]) + self.log_likelihood(s_g, self.theorems[1])
+                word = AnalysedWord(w_b, w_g)
+                evidence = self.evidence_log_probability(s_b) + self.evidence_log_probability(s_g)
+                p = self.get_prior(word) + log_likelihood - evidence
             if (closest_w is None) or (best_p < p):
                 best_p = p
-                closest_w = w
+                closest_w = word
         return closest_w
 
     def text_to_vectors(self, text):
         parsed_words, _, _ = self.parser.parse(text)
-        return [self.text_model.word_to_vector(w) for w in parsed_words]
+        return [self.text_model.word_to_concat_vector(w) for w in parsed_words]
 
 
 def read_file(file_name):
@@ -146,11 +181,13 @@ if __name__ == "__main__":
 class Word2pgmTest(unittest.TestCase):
 
     default_settings = {
-            "base_vector_size": 15,
-            "grammar_vector_size": 15,
             "look_back": 5,
             "lstm_layer_size": 100,
-            "lstm_layers": 2
+            "lstm_layers": 2,
+            "theorems": [
+                Theorem("base", 15, lambda w: w.base),
+                Theorem("grammar", 15, lambda w: w.grammar)
+                ]
             }
 
     def test_predicting_with_tiny_input(self):

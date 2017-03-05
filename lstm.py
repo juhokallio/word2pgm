@@ -22,22 +22,22 @@ def unitvectorize(x):
 
 class AnnModel:
 
-    def __init__(self, vector_size, look_back=10, lstm_size=50, lstm_count=2):
+    def __init__(self, theorems, look_back=10, lstm_size=50, lstm_count=2):
         self.look_back = look_back
-        self.word_vector_size = vector_size
+        self.theorems = theorems
+        self.unit_size = sum([t.vector_size for t in theorems])
 
-        h = Input(shape=(look_back, vector_size), dtype="float32", name="history")
-        x = LSTM(lstm_size, input_dim=self.word_vector_size, input_length=look_back, return_sequences=True)(h)
+        history = Input(shape=(look_back, self.unit_size), dtype="float32", name="history")
+        x = LSTM(lstm_size, input_dim=self.unit_size, input_length=look_back, return_sequences=True)(history)
         for i in range(0, lstm_count - 2):
             x = LSTM(lstm_size, return_sequences=True)(x)
         x = LSTM(lstm_size)(x)
-        vector_predictions = Dense(self.word_vector_size)(x)
-        self.generator = Model(input=h, output=vector_predictions, name="generator")
+        vector_predictions = [Lambda(unitvectorize)(Dense(t.vector_size, name=t.name)(x)) for t in theorems]
+        self.generator = Model(input=history, output=vector_predictions, name="generator")
         self.generator.compile(loss="cosine_proximity", optimizer="adam")
 
-        input_vector = Input(shape=(look_back+1, vector_size), dtype="float32", name="discriminator_input")
-        x = Lambda(unitvectorize)(input_vector)
-        x = LSTM(lstm_size, input_dim=self.word_vector_size, input_length=look_back+1, return_sequences=True)(input_vector)
+        input_vector = Input(shape=(look_back+1, self.unit_size), dtype="float32", name="discriminator_input")
+        x = LSTM(lstm_size, input_dim=self.unit_size, input_length=look_back+1, return_sequences=True)(input_vector)
         for i in range(0, lstm_count - 2):
             x = LSTM(lstm_size, return_sequences=True)(x)
         x = LSTM(lstm_size)(x)
@@ -45,9 +45,10 @@ class AnnModel:
         self.discriminator = Model(input=input_vector, output=authenticity_classification, name="discriminator")
         self.discriminator.compile(loss="binary_crossentropy", optimizer="adam")
 
-        x = merge([h, Reshape((1, vector_size))(vector_predictions)], mode="concat", concat_axis=1)
+        merged_predictions = Reshape((1, self.unit_size))(merge(vector_predictions, mode="concat"))
+        x = merge([history, merged_predictions], mode="concat", concat_axis=1)
         x = self.discriminator(x)
-        self.discriminator_on_generator = Model(input=h, output=x)
+        self.discriminator_on_generator = Model(input=history, output=x)
         self.discriminator_on_generator.compile(loss="binary_crossentropy", optimizer="adam")
         plot(self.discriminator_on_generator, to_file="model.png", show_shapes=True)
 
@@ -60,7 +61,7 @@ class AnnModel:
 
     def create_padded_training_data(self, vectors, sentence_start_indexes):
         def create_dataX(sentence_start):
-            sampleX = np.zeros((self.look_back, self.look_back, self.word_vector_size))
+            sampleX = np.zeros((self.look_back, self.look_back, self.unit_size))
             for i in range(self.look_back):
                 for j in range(self.look_back):
                     vector_index = sentence_start - self.look_back + i + j
@@ -74,7 +75,7 @@ class AnnModel:
         return dataX, dataY
 
     def create_input_data(self, history):
-        X = np.zeros((1, self.look_back, self.word_vector_size))
+        X = np.zeros((1, self.look_back, self.unit_size))
         for i, vector in enumerate(history):
             age = len(history) - i 
             if age <= self.look_back:
@@ -101,7 +102,7 @@ class AnnModel:
             for index in range(int(X.shape[0]/batch_size)):
                 X_batch = X[index*batch_size:(index+1)*batch_size]
                 Y_batch = Y[index*batch_size:(index+1)*batch_size]
-                predicted = self.generator.predict(X_batch)
+                predicted = np.concatenate(self.generator.predict(X_batch), axis=1)
                 X_discriminator = np.concatenate((
                     np.concatenate((X_batch, X_batch)),
                     np.expand_dims(np.concatenate((Y_batch, predicted)), 1)
@@ -134,13 +135,11 @@ class AnnModel:
 
     def predict(self, history):
         prediction_data = self.create_input_data(history)
-        vector = self.generator.predict(prediction_data)[0]
-        return gensim.matutils.unitvec(vector)
+        return self.generator.predict(prediction_data)
 
     def predict_batch(self, data):
         X = np.concatenate([self.create_input_data(h) for h in data])
-        predictions = self.generator.predict(X)
-        return  [gensim.matutils.unitvec(v) for v in predictions]
+        return self.generator.predict(X)
 
 
 class TestAnnModel(unittest.TestCase):

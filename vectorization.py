@@ -14,19 +14,20 @@ from parsing import FinnishParser, AnalysedWord
 
 class TextModel:
 
-    def __init__(self, parsed_words, sentence_start_indexes, base_size=30, grammar_size=30, word2vec_iterations=1500):
+    def __init__(self, parsed_words, sentence_start_indexes, theorems, word2vec_iterations=1500):
+        self.theorems = theorems
         base_sentences, grammar_sentences = self.split_to_sentences(parsed_words, sentence_start_indexes)
-        self.base = self.create_word2vec_model(base_sentences, base_size, word2vec_iterations)
-        self.grammar = self.create_word2vec_model(grammar_sentences, grammar_size, word2vec_iterations)
-        self.base_length = base_size
-        self.grammar_length = grammar_size
-        self.vector_size = self.base_length + self.grammar_length
+        self.models = {
+                theorems[0].name: self.create_word2vec_model(base_sentences, theorems[0].vector_size, word2vec_iterations),
+                theorems[1].name: self.create_word2vec_model(grammar_sentences, theorems[1].vector_size, word2vec_iterations)
+                }
+
         self.counts = self.get_counts(parsed_words)
         self.counted_data_size = len(parsed_words)
 
     @staticmethod
     def create_word2vec_model(sentences, size, iterations):
-        model = gensim.models.Word2Vec(sentences, size=size, min_count=1, iter=iterations, workers=2)
+        model = gensim.models.Word2Vec(sentences, size=size, min_count=1, iter=iterations, workers=4)
         model.init_sims(replace=True)
         positions = {w: model[w] for w in model.vocab}
         return positions
@@ -58,18 +59,24 @@ class TextModel:
         grammar_sentences = [w for window in sentences_as_windows for w in window]
         return base_sentences, grammar_sentences
 
-    def word_to_vector(self, word):
-        vector = np.concatenate((self.base[word.base], self.grammar[word.grammar]))
+    def word_to_vector(self, word, theorem):
+        vector = self.models[theorem.name][theorem.apply(word)]
         return gensim.matutils.unitvec(vector)
+
+    def word_to_concat_vector(self, word):
+        return np.concatenate([self.word_to_vector(word, t) for t in self.theorems])
 
     def get_encounter_count(self, word):
         word_encountered = word.base in self.counts and word.grammar in self.counts[word.base]
         return self.counts[word.base][word.grammar] if word_encountered else 0
 
+    def get_theorem_vocabulary(self, theorem):
+        return self.models[theorem.name].items()
+
     def get_vocabulary(self, word_filter, minimum_counts):
         vocabulary = []
-        for b, v_b in self.base.items():
-            for g, v_g in self.grammar.items():
+        for b, v_b in self.get_theorem_vocabulary(self.theorems[0]):
+            for g, v_g in self.get_theorem_vocabulary(self.theorems[1]):
                 word = AnalysedWord(b, g)
                 counts = self.get_encounter_count(word)
                 if counts >= minimum_counts and word_filter(word):
@@ -89,10 +96,6 @@ class TextModel:
                 s = np.dot(unit_vector, target_unit_vector)
                 model_vectors.append(s)
         return np.array(model_vectors)
-
-    def cosine_similarity_pdf(self, similarity):
-        r = np.sin(np.arccos(similarity))
-        return nsphere.surface(r, self.vector_size - 1)
 
 
 class TestTextModel(unittest.TestCase):
